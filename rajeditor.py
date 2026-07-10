@@ -141,9 +141,10 @@ class RegionEditor(ctk.CTkToplevel):
             it["y"] = min(max(ey - b, 0), self.dh - it["h"] * self.dh) / self.dh
         elif kind == "resize":
             x, y, _, _ = self.to_disp(it)
-            if it["type"] == "sticker":  # keep square
-                s = max(24, max(ex - x, ey - y))
-                it["w"], it["h"] = s / self.dw, s / self.dh
+            if it["type"] == "sticker":  # keep sticker's real shape
+                ar = it.get("ar", 1.0)
+                s = max(30, ex - x)
+                it["w"], it["h"] = s / self.dw, (s * ar) / self.dh
             else:
                 it["w"] = max(10, ex - x) / self.dw
                 it["h"] = max(10, ey - y) / self.dh
@@ -160,10 +161,13 @@ class RegionEditor(ctk.CTkToplevel):
         self.redraw()
 
     def add_sticker(self):
+        img = get_sticker(self.stk.get())
+        ar = img.height / img.width
+        w_px = 0.42 * min(self.dw, self.dh)
         self.items.append({"type": "sticker", "key": self.stk.get(), "custom": None,
-                           "x": 0.36, "y": 0.36,
-                           "w": 0.28 * min(self.dw, self.dh) / self.dw,
-                           "h": 0.28 * min(self.dw, self.dh) / self.dh})
+                           "ar": ar, "x": 0.36, "y": 0.36,
+                           "w": w_px / self.dw,
+                           "h": (w_px * ar) / self.dh})
         self.sel = len(self.items) - 1
         self.mode.set("select")
         self.redraw()
@@ -172,10 +176,13 @@ class RegionEditor(ctk.CTkToplevel):
         p = filedialog.askopenfilename(filetypes=[("PNG image", "*.png")])
         if not p:
             return
+        img = get_sticker("custom", p)
+        ar = img.height / img.width
+        w_px = 0.42 * min(self.dw, self.dh)
         self.items.append({"type": "sticker", "key": "custom", "custom": p,
-                           "x": 0.36, "y": 0.36,
-                           "w": 0.28 * min(self.dw, self.dh) / self.dw,
-                           "h": 0.28 * min(self.dw, self.dh) / self.dh})
+                           "ar": ar, "x": 0.36, "y": 0.36,
+                           "w": w_px / self.dw,
+                           "h": (w_px * ar) / self.dh})
         self.sel = len(self.items) - 1
         self.mode.set("select")
         self.redraw()
