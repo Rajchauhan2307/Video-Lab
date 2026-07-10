@@ -33,21 +33,27 @@ def _button(text, color, icon=None, tcolor="white"):
     S = 512
     img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
-    d.rounded_rectangle([16, 156, 496, 356], radius=64, fill=color)
-    f = _font(96)
+    d.rounded_rectangle([8, 160, 504, 352], radius=96, fill=color)
+    pad = 46
+    icon_w = 100 if icon else 0
+    gap = 22 if icon else 0
+    avail = S - 2 * pad - icon_w - gap
+    size = 100
+    f = _font(size)
+    while d.textlength(text, font=f) > avail and size > 36:
+        size -= 4
+        f = _font(size)
     tw = d.textlength(text, font=f)
-    ix = 0
-    if icon:
-        ix = 70
-    d.text(((S - tw + ix) / 2, 208), text, font=f, fill=tcolor)
+    x0 = (S - (icon_w + gap + tw)) / 2
     if icon == "thumb":
-        _thumb(d, 60, 200, 100, "white")
+        _thumb(d, x0 + 4, 202, 92, "white")
     elif icon == "arrow":
-        d.polygon([(60, 256), (130, 200), (130, 232), (190, 232),
-                   (190, 280), (130, 280), (130, 312)], fill="white")
+        d.polygon([(x0, 256), (x0 + 62, 206), (x0 + 62, 234), (x0 + 100, 234),
+                   (x0 + 100, 278), (x0 + 62, 278), (x0 + 62, 306)], fill="white")
     elif icon == "plus":
-        d.rounded_rectangle([70, 244, 170, 268], radius=10, fill="white")
-        d.rounded_rectangle([108, 206, 132, 306], radius=10, fill="white")
+        d.rounded_rectangle([x0 + 6, 244, x0 + 94, 268], radius=10, fill="white")
+        d.rounded_rectangle([x0 + 38, 212, x0 + 62, 300], radius=10, fill="white")
+    d.text((x0 + icon_w + gap, 256), text, font=f, fill=tcolor, anchor="lm")
     return img
 
 def _thumb(d, x, y, s, color):
@@ -219,5 +225,11 @@ def get_sticker(key, custom_path=None):
     shadow.paste(sh, (30, 34), sh)
     shadow = shadow.filter(ImageFilter.GaussianBlur(10))
     shadow.paste(base, (24, 24), base)
+    bbox = shadow.getbbox()
+    if bbox:
+        l, t, r, b = bbox
+        m = 4
+        shadow = shadow.crop((max(0, l - m), max(0, t - m),
+                              min(shadow.width, r + m), min(shadow.height, b + m)))
     _sticker_cache[ck] = shadow
     return shadow
