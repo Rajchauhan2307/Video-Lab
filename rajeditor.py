@@ -1,4 +1,4 @@
-"""RAJ VIDEO LAB v1.0 — editor + processing engine"""
+"""RAJ VIDEO LAB v1.1 — editor + processing engine"""
 import os, subprocess
 import numpy as np
 import cv2
@@ -12,7 +12,7 @@ from rajstickers import *
 #  REGION / STICKER EDITOR WINDOW
 # ─────────────────────────────────────────────
 class RegionEditor(ctk.CTkToplevel):
-    """Draw blur/pixelate rects + place/drag/resize stickers on first frame.
+    """Draw blur/pixelate/erase rects + place/drag/resize stickers.
        Saved items are NORMALIZED (0-1) -> apply on ALL videos."""
     HANDLE = 14
 
@@ -33,7 +33,7 @@ class RegionEditor(ctk.CTkToplevel):
         bar = ctk.CTkFrame(self, fg_color=CARD)
         bar.pack(fill="x", padx=8, pady=6)
         self.mode = ctk.StringVar(value="select")
-        for txt, m in (("🖱 Select", "select"), ("◼ Add BLUR", "blur"), ("▦ Add PIXELATE", "pixel")):
+        for txt, m in (("🖱 Select", "select"), ("◼ Add BLUR", "blur"), ("▦ Add PIXELATE", "pixel"), ("🩹 Add ERASE", "erase")):
             ctk.CTkRadioButton(bar, text=txt, variable=self.mode, value=m,
                                fg_color=NEON, text_color="white").pack(side="left", padx=8, pady=6)
         self.blur_lv = ctk.CTkOptionMenu(bar, values=list(BLUR_LEVELS), width=110,
@@ -46,8 +46,12 @@ class RegionEditor(ctk.CTkToplevel):
         bar2 = ctk.CTkFrame(self, fg_color=CARD)
         bar2.pack(fill="x", padx=8, pady=(0, 6))
         self.stk = ctk.CTkOptionMenu(bar2, values=list(STICKERS), width=170,
-                                     fg_color="#1e2a36", button_color=NEON2, text_color="white")
+                                     fg_color="#1e2a36", button_color=NEON2, text_color="white",
+                                     command=self._stk_prev)
         self.stk.set("👍 LIKE"); self.stk.pack(side="left", padx=8, pady=6)
+        self.prev_lbl = ctk.CTkLabel(bar2, text="")
+        self.prev_lbl.pack(side="left", padx=4)
+        self._stk_prev("👍 LIKE")
         ctk.CTkButton(bar2, text="+ Add Sticker", fg_color=NEON2, text_color="white",
                       width=110, command=self.add_sticker).pack(side="left", padx=4)
         ctk.CTkButton(bar2, text="🖼 Custom PNG", fg_color="#333c48", text_color="white",
@@ -71,6 +75,13 @@ class RegionEditor(ctk.CTkToplevel):
         self.canvas.bind("<ButtonRelease-1>", self.on_up)
         self.redraw()
 
+    def _stk_prev(self, key):
+        img = get_sticker(key)
+        h = 42
+        w = max(20, int(h * img.width / img.height))
+        self._prev_img = ctk.CTkImage(light_image=img, dark_image=img, size=(w, h))
+        self.prev_lbl.configure(image=self._prev_img, text="")
+
     # ---- geometry helpers (display px <-> normalized) ----
     def to_disp(self, it):
         return (it["x"] * self.dw, it["y"] * self.dh, it["w"] * self.dw, it["h"] * self.dh)
@@ -91,12 +102,12 @@ class RegionEditor(ctk.CTkToplevel):
                     self.canvas.create_rectangle(x, y, x + w, y + h, outline=NEON2,
                                                  width=2, dash=(4, 3), tags="item")
             else:
-                color = NEON if it["type"] == "blur" else "#ffca28"
+                color = {"blur": NEON, "pixel": "#ffca28", "erase": "#00e676"}[it["type"]]
+                label = {"blur": "BLUR ", "pixel": "PIXEL ", "erase": "🩹 ERASE"}[it["type"]] + it.get("param", "")
                 self.canvas.create_rectangle(x, y, x + w, y + h, outline=color,
                                              width=3 if sel else 2, tags="item")
                 self.canvas.create_text(x + 6, y + 6, anchor="nw", tags="item",
-                                        text=("BLUR " if it["type"] == "blur" else "PIXEL ") + it["param"],
-                                        fill=color, font=("Arial", 11, "bold"))
+                                        text=label, fill=color, font=("Arial", 11, "bold"))
             if sel:  # resize handle bottom-right
                 hs = self.HANDLE
                 self.canvas.create_rectangle(x + w - hs, y + h - hs, x + w, y + h,
@@ -112,11 +123,11 @@ class RegionEditor(ctk.CTkToplevel):
 
     def on_down(self, e):
         m = self.mode.get()
-        if m in ("blur", "pixel"):
+        if m in ("blur", "pixel", "erase"):
             self.drag = ("new", e.x, e.y)
+            param = {"blur": self.blur_lv.get(), "pixel": self.pix_lv.get(), "erase": ""}[m]
             self.items.append({"type": m, "x": e.x / self.dw, "y": e.y / self.dh,
-                               "w": 0.001, "h": 0.001,
-                               "param": self.blur_lv.get() if m == "blur" else self.pix_lv.get()})
+                               "w": 0.001, "h": 0.001, "param": param})
             self.sel = len(self.items) - 1
         else:
             i, corner = self.hit(e.x, e.y)
@@ -210,6 +221,14 @@ def apply_privacy(frame, items, cache):
             if k % 2 == 0:
                 k += 1
             frame[y:y+h, x:x+w] = cv2.GaussianBlur(frame[y:y+h, x:x+w], (k, k), 0)
+        elif it["type"] == "erase":
+            mask = np.zeros((H, W), np.uint8)
+            mask[y:y+h, x:x+w] = 255
+            pad = max(30, min(w, h))
+            y0, y1 = max(0, y - pad), min(H, y + h + pad)
+            x0, x1 = max(0, x - pad), min(W, x + w + pad)
+            frame[y0:y1, x0:x1] = cv2.inpaint(frame[y0:y1, x0:x1],
+                                              mask[y0:y1, x0:x1], 5, cv2.INPAINT_TELEA)
         elif it["type"] == "pixel":
             f = PIXEL_LEVELS[it["param"]]
             sw, sh = max(1, int(w * f)), max(1, int(h * f))
